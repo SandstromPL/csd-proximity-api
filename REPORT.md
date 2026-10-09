@@ -96,15 +96,24 @@ Both methods use the same data structures and the same model (A1–A10). They di
 ### 4.2 Method 1: Layered BFS with early stopping (`search_bfs`, served by the API)
 
 ```
-src  = snap(lat, long)                       # A4
+target = min(10, count_in_circle(q, cat, rad))   # how many can exist at all
+if target == 0: return []
+src  = snap(lat, long)                           # A4
 layer = [src], d = 0, found = []
 while layer not empty:
     for v in layer:
         if cat[v] == cat and euclid(v, q) <= rad:  found.add((d, id[v]))
-    if |found| >= 10: break                  # top-10 is now final
+    if |found| >= target: break                  # result is now final
     layer = unvisited neighbours of layer;  d += 1
 return the 10 smallest (d, id) in found
 ```
+
+**Eligible-count bound (`count_in_circle`).** Without it, a query with fewer than 10 eligible locations cannot know it has found them all, so it exhausts the whole graph.
+
+- At startup, per-category, per-row prefix counts are built (8 × 100 × 101 integers).
+- Per query, each grid row inside the circle covers one contiguous column run. It is located by binary search, its ends are trimmed with the *same* inside-radius test the search uses, and the matching category count is read from the prefix table.
+- Cost: O(rows spanned × log cols), at most about 100 steps.
+- Safety: the count is never below the true value. An over-estimate, possible in path-restricted mode where some eligible nodes are unreachable, only means the BFS stops when its frontier empties, as before.
 
 **Why the early stop is correct.**
 - BFS visits nodes in non-decreasing road distance, and every node in layer `d` has distance exactly `d`.
@@ -113,7 +122,7 @@ return the 10 smallest (d, id) in found
 - Ties *within* the last layer are all collected before the sort, so the tie-break (A5) is applied over the complete tied set.
 - The search is not pruned at the radius boundary, because under A3 a shortest route may leave the circle and come back.
 
-**Complexity.** The worst case is O(V + E) per query. In practice it touches only the nodes within the 10th-result distance: on average **~117 of 10,000 nodes**, about **0.21 ms** per query.
+**Complexity.** The worst case is O(V + E) per query. In practice it touches only the nodes within the 10th-result distance: on average **~117 of 10,000 nodes**, about **0.09 ms** per query (§6.3).
 
 ### 4.3 Method 2: Brute-force reference (`search_bruteforce`)
 
@@ -121,7 +130,7 @@ return the 10 smallest (d, id) in found
 2. Keep every node with a matching category, inside the radius, and reachable.
 3. Sort all of them by `(distance, id)` and take the first 10.
 
-It has no early stopping and no cleverness, so it is easy to verify by inspection. It costs O(V + E + m log m) per query, about **2.26 ms**.
+It has no early stopping and no cleverness, so it is easy to verify by inspection. It costs O(V + E + m log m) per query, about **2–5 ms**.
 
 Its purpose is to serve as the **ground truth for validating Method 1**. Any difference between the two would expose a bug in the early-stopping logic.
 
@@ -136,7 +145,7 @@ Its purpose is to serve as the **ground truth for validating Method 1**. Any dif
 | Approach | Reason rejected |
 |---|---|
 | Rank by Euclidean distance | Spec explicitly says ranking is by traversal distance |
-| Rank by Manhattan distance | Ignores the 5,000 missing roads; wrong in 86 % of queries |
+| Rank by Manhattan distance | Ignores the 5,000 missing roads; wrong in 82–86 % of queries |
 | Dijkstra / A* | Edges unweighted → BFS is optimal; A* targets a single known destination, not "nearest 10" |
 | KD-tree / R-tree / PostGIS | Only geometric; cannot produce road distance; overkill for a regular grid |
 | All-pairs precomputation (10⁴ × 10⁴) | 100 M distances (~200 MB+), unnecessary when a query takes 0.2 ms |
@@ -171,21 +180,34 @@ Example response:
 
 ## 6. Validation and sensitivity analysis
 
-`python3 crosscheck.py 2000` runs 2,000 random queries (seed 42):
+`python3 crosscheck.py 2000` runs 2,000 random queries (seed 42) plus 2,000 boundary-heavy queries:
 - half are on grid points and half are arbitrary off-grid points;
 - the category is random;
 - `rad` is drawn from {0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.5, 1.5}.
+
+A second set of 2,000 boundary-heavy queries is added. These are on-grid centres with radii equal to exact grid distances √(a² + b²) × spacing, so many locations lie exactly on the circle.
+
+### 6.0 Eligible-count bound
+
+`count_in_circle` was compared with a full scan of all 10,000 nodes over all 4,000 queries: **0 mismatches**.
+
+Effect on speed (3,000 random queries):
+
+| Query type | Before | After |
+|---|---|---|
+| < 10 eligible (BFS previously exhausted the graph) | 2.41 ms | **0.02 ms** (~100× faster) |
+| ≥ 10 eligible | 0.02 ms | 0.06 ms (cost of counting; still far below 1 ms) |
 
 ### 6.1 Method 1 vs. Method 2 (correctness)
 
 | Configuration | Mismatches |
 |---|---|
-| endpoint radius, tie by ID | 0 / 2000 |
-| endpoint radius, tie by Euclid | 0 / 2000 |
-| path radius, tie by ID | 0 / 2000 |
-| path radius, tie by Euclid | 0 / 2000 |
+| endpoint radius, tie by ID | 0 / 4000 |
+| endpoint radius, tie by Euclid | 0 / 4000 |
+| path radius, tie by ID | 0 / 4000 |
+| path radius, tie by Euclid | 0 / 4000 |
 
-The early-stopping BFS returns **exactly** the same IDs, in the same order, as the brute-force reference in all 8,000 comparisons.
+The early-stopping BFS returns **exactly** the same IDs, in the same order, as the brute-force reference in all 16,000 comparisons.
 
 ### 6.2 Sensitivity to modelling choices
 
@@ -193,16 +215,16 @@ These compare the default configuration against one changed choice. They are com
 
 | Changed choice | Queries whose top-10 changes | Avg. IDs changed (of 10) | Interpretation |
 |---|---|---|---|
-| Tie: ID → Euclidean | 43.4 % | 0.49 | Ties at the 10th position are common; the rule matters |
-| Radius: endpoint → path-restricted | 0.1 % | 0.00 | Practically irrelevant on this data |
-| Road BFS → Manhattan (no missing roads) | 86.2 % | 1.60 | The road network is essential |
+| Tie: ID → Euclidean | 39.1 % | 0.44 | Ties at the 10th position are common; the rule matters |
+| Radius: endpoint → path-restricted | 0.3 % | 0.00 | Practically irrelevant on this data |
+| Road BFS → Manhattan (no missing roads) | 82.1 % | 1.49 | The road network is essential |
 
 ### 6.3 Performance
 
 | Method | Mean time per query | Nodes touched (avg) |
 |---|---|---|
-| BFS early-stop (served) | 0.21 ms | ~117 |
-| Brute force (reference) | 2.26 ms | 10,000 |
+| BFS early-stop (served) | 0.09 ms | ~117 |
+| Brute force (reference) | 4.61 ms | 10,000 |
 
 ---
 
@@ -216,7 +238,7 @@ These compare the default configuration against one changed choice. They are com
 
 ## 8. Limitations and open risks
 
-1. **Tie-breaking (A5)** is the main risk. The evaluator's rule is unknown, and it changes results in ~43 % of random queries. The scoring impact is bounded because typically only one ID differs.
+1. **Tie-breaking (A5)** is the main risk. The evaluator's rule is unknown, and it changes results in ~40 % of random queries. The scoring impact is bounded because typically only one ID differs.
 2. **Off-grid snapping (A4)**: if the evaluator starts from a different node, for example the nearest *eligible* node, results may differ for off-grid queries.
 3. The radius is planar Euclidean in unit-square units. It is not a geodesic or kilometre distance, because the coordinates are in [0, 1].
 4. The server is a single-process standard-library HTTP server. That is adequate for evaluation; a production deployment would use a WSGI/ASGI server behind a reverse proxy.
@@ -227,6 +249,6 @@ These compare the default configuration against one changed choice. They are com
 
 - The dataset is a complete 100 × 100 grid. The supplied links form a connected, unweighted road graph with 25 % of roads missing.
 - The correct ranking metric is therefore BFS hop count. Eligibility is a Euclidean radius check from the query point.
-- The served method is a layered BFS with a provably safe early stop. It was cross-checked against an exhaustive reference with **0 mismatches in 8,000 comparisons**.
-- It is about **10× faster** (0.2 ms per query).
+- The served method is a layered BFS with a provably safe early stop. It was cross-checked against an exhaustive reference with **0 mismatches in 16,000 comparisons**. An exact eligible-count bound lets it stop early even when fewer than 10 locations qualify.
+- It is about **50× faster** than the reference (under 0.1 ms per query).
 - The only material uncertainty is the evaluator's tie-break rule, which is documented above.
