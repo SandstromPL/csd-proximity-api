@@ -1,18 +1,16 @@
 """Nearest-location search on a 100x100 grid road network.
 
 Data:
-  locations.csv : ID,Latitude,Longitude,Category          (loaded once)
-  link file     : one road per line, "a b" with a, b grid points. Supplied per
-                  request; assets/link.txt is the default. Accepted line forms:
-                    Lon_A Lat_A Lon_B Lat_B     (sample format: longitude first!)
-                    Lon_A,Lat_A Lon_B,Lat_B
-                    ID_A ID_B
+  locations.csv : ID,Latitude,Longitude,Category
+  link.txt      : Lon_A Lat_A Lon_B Lat_B   (note: longitude first!)
 
 Model:
   - Eligibility: category matches AND Euclidean distance from the raw query
     point to the location is <= rad.
-  - Ranking: shortest-path hop count on the link graph (unweighted -> BFS),
-    starting from the grid node nearest to the query point.
+  - Ranking: shortest-path hop count (unweighted -> BFS), starting from the
+    grid node nearest to the query point, over one of two road graphs:
+      link=true  -> only the roads listed in link.txt (some are missing)
+      link=false -> every pair of grid neighbours is connected (full lattice)
   - Ties: broken by a configurable key (default: location ID ascending).
 
 Two methods are provided and must agree:
@@ -23,17 +21,13 @@ Two methods are provided and must agree:
 import bisect
 import copy
 import csv
-import hashlib
 import math
 import os
-import re
-from collections import OrderedDict, deque
+from collections import deque
 
 K = 10
 EPS = 1e-9
-SNAP_TOL = 1e-3  # a link endpoint must be this close to a grid value (spacing ~0.0101)
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
-_SEPARATORS = re.compile(r"[,;()\[\]]")
 
 
 class Grid:
@@ -71,73 +65,43 @@ class Grid:
                 table.append(acc)
             self.row_prefix[c_name] = table
 
-        self.node_of_id = {self.id[v]: v for v in range(n)}
-
-        self._cache = OrderedDict()  # sha1(link text) -> Grid view
-        with open(link_path) as f:
-            self.adj, self.link_stats = self.parse_links(f.read())
-
-    def parse_links(self, text):
-        """Build an adjacency list from link-file text. Returns (adj, stats)."""
-        n = self.nrows * self.ncols
         adj = [set() for _ in range(n)]
-        stats = {"lines": 0, "edges": 0, "skipped": 0, "off_grid": 0, "non_adjacent": 0}
-        for line in text.splitlines():
-            parts = _SEPARATORS.sub(" ", line).split()
-            if not parts:
+        for line in open(link_path):
+            parts = line.split()
+            if len(parts) != 4:
                 continue
-            stats["lines"] += 1
-            try:
-                if len(parts) == 4:
-                    lon_a, lat_a, lon_b, lat_b = map(float, parts)
-                    a, b = self._node_on_grid(lat_a, lon_a), self._node_on_grid(lat_b, lon_b)
-                elif len(parts) == 2:
-                    a, b = self.node_of_id.get(int(parts[0])), self.node_of_id.get(int(parts[1]))
-                else:
-                    raise ValueError
-            except ValueError:  # header, comment or malformed line
-                stats["skipped"] += 1
-                continue
-            if a is None or b is None:
-                stats["off_grid"] += 1
-                continue
-            if a == b:
-                stats["skipped"] += 1
-                continue
-            ra, ca = divmod(a, self.ncols)
-            rb, cb = divmod(b, self.ncols)
-            if abs(ra - rb) + abs(ca - cb) != 1:
-                # Spec says links only join neighbours; keep it as one hop anyway.
-                stats["non_adjacent"] += 1
-            if b not in adj[a]:
-                adj[a].add(b)
-                adj[b].add(a)
-                stats["edges"] += 1
-        # Sorted lists: deterministic neighbour order and fast iteration.
-        return [sorted(s) for s in adj], stats
+            lon_a, lat_a, lon_b, lat_b = map(float, parts)
+            a = self._node_exact(lat_a, lon_a)
+            b = self._node_exact(lat_b, lon_b)
+            adj[a].add(b)
+            adj[b].add(a)
+        # Sorted lists: deterministic neighbour order (only matters for discovery-order ties).
+        self.adj = [sorted(s) for s in adj]
+        self._full = None
 
-    def with_links(self, text):
-        """A view of this grid that uses the given link text (cached by content)."""
-        key = hashlib.sha1(text.encode()).hexdigest()
-        if key in self._cache:
-            self._cache.move_to_end(key)
-            return self._cache[key]
-        adj, stats = self.parse_links(text)
-        if stats["edges"] == 0:
-            raise ValueError(f"link file contains no usable links: {stats}")
-        view = copy.copy(self)  # shares the location arrays; only adj differs
-        view.adj, view.link_stats = adj, stats
-        self._cache[key] = view
-        if len(self._cache) > 8:
-            self._cache.popitem(last=False)
-        return view
+    def full_grid(self):
+        """A view of this grid in which every pair of 4-neighbours is linked (link=false)."""
+        if self._full is None:
+            adj = [[] for _ in range(self.nrows * self.ncols)]
+            for r in range(self.nrows):
+                for c in range(self.ncols):
+                    v = r * self.ncols + c
+                    if r > 0:
+                        adj[v].append(v - self.ncols)
+                    if c > 0:
+                        adj[v].append(v - 1)
+                    if c + 1 < self.ncols:
+                        adj[v].append(v + 1)
+                    if r + 1 < self.nrows:
+                        adj[v].append(v + self.ncols)
+            view = copy.copy(self)  # shares the location arrays; only adj differs
+            view.adj = adj
+            self._full = view
+        return self._full
 
-    def _node_on_grid(self, lat, lon):
-        r = self._nearest(self.lat_vals, lat)
-        c = self._nearest(self.lon_vals, lon)
-        if abs(self.lat_vals[r] - lat) > SNAP_TOL or abs(self.lon_vals[c] - lon) > SNAP_TOL:
-            return None
-        return r * self.ncols + c
+    def graph(self, link):
+        """link=True: roads from link.txt; link=False: full lattice."""
+        return self if link else self.full_grid()
 
     @staticmethod
     def _nearest(vals, x):
