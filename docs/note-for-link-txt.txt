@@ -1,0 +1,2 @@
+Each line is of format : Longitude_A Latitude_A Longitude_B Latitude_B (Space separated)
+Note: All points are on grid, no diagonal links and links can only exist between neighbor.
