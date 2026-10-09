@@ -2,18 +2,18 @@
 
 **Course:** Computer System Design  **Author:** Paritosh L.
 **Code:** `engine.py` (algorithms), `server.py` (HTTP API), `crosscheck.py` (validation)
-**Data:** `docs/locations.csv`, `docs/link.txt`  **Assignment material:** `assets/`
+**Data:** `assets/locations.csv`, `assets/link.txt` (sample/default road links)  **Assignment material:** `docs/`
 
 ---
 
 ## 1. Problem statement
 
-Build an API at `IP/search/` with fields `lat, long, cat, rad`. It returns the IDs of the **10 closest locations** that:
+Build an API at `IP/search/` with fields `lat, long, cat, rad, link`. `link` is a .txt file of road linkage; each line holds two grid points `a b` joined by a road. It returns the IDs of the **10 closest locations** that:
 
 1. have category `cat`, and
 2. lie within **circular (Euclidean) distance** `rad` of the query point.
 
-"Closest" means **traversal distance on the grid road network**, not straight-line distance. Some roads between neighbouring locations are missing.
+"Closest" means **traversal distance on the grid road network described by the supplied `link` file**, not straight-line distance. Some roads between neighbouring locations are missing. Because the road network arrives with the request, the graph cannot be hard-coded; it must be built from the request's file.
 
 Formally, for query `q = (lat, long)`:
 
@@ -43,7 +43,7 @@ The two distances serve different purposes:
 | ID layout | Row-major: `ID = row·100 + col + 1` (row = latitude index) |
 | Categories | 8 (`bank, cafe, hospital, park, pharmacy, restaurant, school, store`), 1,250 each |
 
-### 2.2 `link.txt` (road network, supplied later)
+### 2.2 `link.txt` (sample road network; also the default when a request sends no `link`)
 
 The format is `Longitude_A Latitude_A Longitude_B Latitude_B`. **Longitude comes first, the opposite of the CSV.** The supplied note says that all points are on the grid, that there are no diagonal links, and that links exist only between neighbours.
 
@@ -80,18 +80,22 @@ Each assumption is listed with its justification and, where measured, its impact
 | A8 | Dataset size is 10,000 (not 1,000,000) | The supplied file has 10,000 rows; evaluation section says 10,000 | Algorithm still scales; see §7 |
 | A9 | If fewer than 10 locations qualify, return all that do (sorted) | Spec guarantees ≥ 10 for the hidden queries; graceful otherwise | None for evaluation |
 | A10 | Coordinates are mapped to indices by **lookup of the 100 known values**, never by dividing floats | Avoids `x / 0.010101` rounding errors | — |
+| A11 | A `link` line with four numbers is `Lon_A Lat_A Lon_B Lat_B` (longitude first). Two integers are two location IDs. Commas, brackets and semicolons are treated as spaces | The longitude-first order is stated in the note supplied with the sample file; the other forms cover "a and b" written as IDs or coordinate pairs | Swapping lat/lon would transpose the graph. The order cannot be detected from the file, because both readings give a valid grid |
+| A12 | Link endpoints must lie within 0.001 of a grid point (spacing ≈ 0.0101); other lines are skipped and counted. A link between non-neighbours, which the spec says cannot occur, is kept as one hop | Tolerates rounding in the file without inventing points | Reported in the response's `link` statistics |
+| A13 | If a request has no `link` field, `assets/link.txt` is used | Keeps simple GET testing possible | None if the evaluator always sends `link` |
 
 ---
 
 ## 4. Design: the two methods
 
-Both methods use the same data structures and the same model (A1–A10). They differ only in how much of the graph they explore.
+Both methods use the same data structures and the same model (A1–A13). They differ only in how much of the graph they explore.
 
-### 4.1 Preprocessing (once, at startup)
+### 4.1 Preprocessing
 
 1. Read the CSV. Map each distinct latitude and longitude to an index (0–99), and store each location at node `v = row·100 + col`. Arrays hold `id[v]`, `lat[v]`, `lon[v]` and `cat[v]`.
-2. Read `link.txt`. **Swap the order to (lat, lon)**, map both endpoints to nodes, and build an adjacency list. Neighbours are sorted for determinism.
-3. Cost: O(V + E) time and memory, with V = 10,000 and E = 14,800. It takes about 0.1 s.
+2. **Per link file**, which comes with the request or is the default: parse each line (A11, A12), **swap to (lat, lon)**, map both endpoints to nodes, and build an adjacency list. Neighbours are sorted for determinism.
+3. The location arrays are shared. Each link file only produces its own adjacency list, cached by the SHA-1 of its contents (last 8 kept). Ten hidden queries that share one link file therefore build the graph once.
+4. Cost: O(V + E) per new link file, with V = 10,000 and E ≈ 15,000. Parsing takes about 40 ms; a cached request takes about 12 ms end to end, including the upload.
 
 ### 4.2 Method 1: Layered BFS with early stopping (`search_bfs`, served by the API)
 
@@ -155,23 +159,38 @@ Its purpose is to serve as the **ground truth for validating Method 1**. Any dif
 
 ## 5. API
 
-The API uses only the Python 3 standard library (`http.server`), so there are no dependencies to install.
+The API uses only the Python 3 standard library (`http.server`, `email`), so there are no dependencies to install.
+
+- Uploads are parsed with the `email` package. The old `cgi` module was removed in Python 3.13, so it is not used.
+- The server runs unchanged on Python 3.8 to 3.14.
 
 ```
 python3 server.py --host 0.0.0.0 --port 8000
-GET  http://<IP>:8000/search/?lat=0.5&long=0.5&cat=bank&rad=0.1
-POST http://<IP>:8000/search/      body: {"lat":0.5,"long":0.5,"cat":"bank","rad":0.1}
 ```
+
+Fields: `lat`, `long`, `cat`, `rad`, `link`. The specification does not fix how the `link` file is transmitted, so every common form is accepted:
+
+| How `link` is sent | Example |
+|---|---|
+| File upload (multipart) | `curl -F lat=0.5 -F long=0.5 -F cat=bank -F rad=0.1 -F link=@link.txt http://<IP>:8000/search/` |
+| File text in a form field | `curl --data-urlencode lat=0.5 ... --data-urlencode link@link.txt http://<IP>:8000/search/` |
+| File text in JSON | `POST {"lat":0.5,"long":0.5,"cat":"bank","rad":0.1,"link":"<file text>"}` |
+| Raw text body | `POST /search/?lat=0.5&long=0.5&cat=bank&rad=0.1` with the file as a `text/plain` body |
+| URL of the file | `GET /search/?...&link=http://host/link.txt` |
+| Omitted | `GET /search/?lat=0.5&long=0.5&cat=bank&rad=0.1` uses `assets/link.txt` |
 
 Example response:
 
 ```json
 {"ids": [4850, 4948, 4648, 4753, 4947, 5349, 4451, 5348, 4351, 4654],
  "results": [{"id": 4850, "grid_distance": 1}, {"id": 4948, "grid_distance": 4}, ...],
- "count": 10, "time_ms": 0.1}
+ "count": 10,
+ "link": {"source": "uploaded", "lines": 14800, "edges": 14800, "skipped": 0, "off_grid": 0, "non_adjacent": 0},
+ "time_ms": 12.3}
 ```
 
 - `ids` is the required output: 10 location IDs, nearest first.
+- `link` reports how the road file was read, so a malformed upload is visible immediately. A file with no usable links returns HTTP 400.
 - Bad input returns HTTP 400 with a message. This covers an unknown category, a missing or non-numeric field, and a negative radius.
 - `/search` without a trailing slash is also accepted.
 - Optional parameters `method=brute`, `tie=euclid` and `radius_mode=path` expose the variants. The defaults are what the evaluator hits.
@@ -226,6 +245,18 @@ These compare the default configuration against one changed choice. They are com
 | BFS early-stop (served) | 0.09 ms | ~117 |
 | Brute force (reference) | 4.61 ms | 10,000 |
 
+### 6.4 Per-request `link` input
+
+The sample network was re-encoded, and several other networks were generated. Each was fed through the engine and through every HTTP transport.
+
+| Test | Result |
+|---|---|
+| Same network as ID pairs (`idA idB`) or as comma pairs (`lon,lat lon,lat`) | Identical answers to the sample format on 500 / 500 queries |
+| Complete lattice (all 19,800 roads) | Identical to Manhattan ranking on 500 / 500 queries. This sanity-checks the hop-count model |
+| Different random network (13,000 roads, possibly disconnected, with a header line) | BFS = brute force on 500 / 500; answers differ from the sample network on 498 / 500. So the `link` input really drives the result |
+| Multipart upload, form field, JSON, raw body, URL, filename, omitted | All return the expected IDs; a garbage file returns HTTP 400 |
+| Latency with the link file uploaded | ~49 ms for a new file (parse and build), ~12 ms when cached |
+
 ---
 
 ## 7. Scalability
@@ -241,13 +272,15 @@ These compare the default configuration against one changed choice. They are com
 1. **Tie-breaking (A5)** is the main risk. The evaluator's rule is unknown, and it changes results in ~40 % of random queries. The scoring impact is bounded because typically only one ID differs.
 2. **Off-grid snapping (A4)**: if the evaluator starts from a different node, for example the nearest *eligible* node, results may differ for off-grid queries.
 3. The radius is planar Euclidean in unit-square units. It is not a geodesic or kilometre distance, because the coordinates are in [0, 1].
-4. The server is a single-process standard-library HTTP server. That is adequate for evaluation; a production deployment would use a WSGI/ASGI server behind a reverse proxy.
+4. **`link` coordinate order (A11)**: four-number lines are read longitude-first, as in the sample. A file written latitude-first would silently describe the transposed network.
+5. **Transport of `link`**: the specification does not say how the file is sent. All common forms are accepted (§5), but an unusual form would fall back to the default network. The response's `link.source` and `link.edges` fields make this visible.
+6. The server is a single-process standard-library HTTP server. That is adequate for evaluation; a production deployment would use a WSGI/ASGI server behind a reverse proxy.
 
 ---
 
 ## 9. Summary
 
-- The dataset is a complete 100 × 100 grid. The supplied links form a connected, unweighted road graph with 25 % of roads missing.
+- The dataset is a complete 100 × 100 grid. The road network is an input to every request (`link`). It is parsed per file, validated, and cached. The sample links form a connected, unweighted road graph with 25 % of roads missing.
 - The correct ranking metric is therefore BFS hop count. Eligibility is a Euclidean radius check from the query point.
 - The served method is a layered BFS with a provably safe early stop. It was cross-checked against an exhaustive reference with **0 mismatches in 16,000 comparisons**. An exact eligible-count bound lets it stop early even when fewer than 10 locations qualify.
 - It is about **50× faster** than the reference (under 0.1 ms per query).
