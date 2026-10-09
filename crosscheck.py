@@ -56,6 +56,11 @@ for mode in mismatch:
                 print("MISMATCH", mode, tie, q, a, b)
 print(f"\n[1] BFS-early-stop vs brute force over {len(qs)} queries x 2 tie rules:", mismatch)
 
+# link=false: every neighbour pair connected, so road distance must equal Manhattan distance.
+full = g.full_grid()
+bad_full = sum(not (search_bfs(full, *q) == search_bruteforce(full, *q) == search_manhattan(g, *q)) for q in qs)
+print(f"[1b] link=false: BFS == brute force == Manhattan over {len(qs)} queries: {bad_full} mismatches")
+
 
 def overlap(f1, f2):
     """Average IDs that differ (out of 10) among queries with >= 10 results under both."""
@@ -74,11 +79,11 @@ def overlap(f1, f2):
 print("\n[2] Sensitivity to modelling choices (all on the same queries):")
 print("  tie id vs tie euclid      :", overlap(lambda q: search_bfs(g, *q), lambda q: search_bfs(g, *q, tie="euclid")))
 print("  radius endpoint vs path   :", overlap(lambda q: search_bfs(g, *q), lambda q: search_bfs(g, *q, radius_mode="path")))
-print("  graph BFS vs Manhattan    :", overlap(lambda q: search_bfs(g, *q), lambda q: search_manhattan(g, *q)))
+print("  link=true vs link=false   :", overlap(lambda q: search_bfs(g, *q), lambda q: search_manhattan(g, *q)))
 
 print("\n[3] Timing (mean per query):")
 for name, f in (("bfs early-stop", search_bfs), ("brute force", search_bruteforce)):
     t0 = time.perf_counter()
     for q in qs:
         f(g, *q)
-    print(f"  {name:15s} {(time.perf_counter() - t0) / N * 1000:.3f} ms")
+    print(f"  {name:15s} {(time.perf_counter() - t0) / len(qs) * 1000:.3f} ms")
