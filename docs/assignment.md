@@ -7,12 +7,13 @@ The locations lie on a 1 × 1 grid. However, some direct links/roads between loc
 
 Your API must accept the following inputs:
 - Current Latitude, Current Longitude, Category
-- Search, Radius
-- the route must be "IP/search/" and fields must be (lat,long,cat,rad)
+  Search, Radius,linkage info
+- the route must be "IP/search/" and fields must be (lat,long,cat,rad,link)
 The API must return:
 - 10 recommended location IDs
 - The returned locations should be the closest valid locations matching the requested category and search radius.
 - Radius is the circular distance from the current latitude and longitude while distance is the actual traversal distance on grid. So by closest we mean grid distance and being in radius is the circular distance
+- link is a txt file containing road linkage information. Each line in the txt file contain space separated a and b indicating linkage between point a and b. a and b are all of the grid.
 
 # Dataset
 
@@ -24,11 +25,11 @@ You are free to use any suitable: Algorithm, Data structure, Spatial indexing te
 # Evaluation
 
 The API will be tested using 10 hidden queries.
-For each query, we have a precomputed set of 10 true nearest locations.
-The 10 test queries will remain hidden.
-All students will be evaluated using the same set of hidden queries to ensure a fair comparison.
-Every test query will have at least 10 valid locations satisfying the required conditions.
-Your implementation should also be efficient enough to handle a dataset of 10000 locations.
+- For each query, we have a precomputed set of 10 true nearest locations.
+- The 10 test queries will remain hidden.
+- All students will be evaluated using the same set of hidden queries to ensure a fair comparison.
+- Every test query will have at least 10 valid locations satisfying the required conditions.
+- Your implementation should also be efficient enough to handle a dataset of 10000 locations.
 
 # Submission:
 - API Link

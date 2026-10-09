@@ -24,7 +24,7 @@ from collections import deque
 
 K = 10
 EPS = 1e-9
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs")
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
 class Grid:
