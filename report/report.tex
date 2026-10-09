@@ -1,39 +1,94 @@
 \documentclass[11pt,a4paper]{article}
-\usepackage[margin=2.2cm]{geometry}
+
+%================================================================ packages
+\usepackage[a4paper, margin=2.2cm, headheight=14pt]{geometry}
 \usepackage[T1]{fontenc}
-\usepackage{lmodern}
-\usepackage{amsmath}
-\usepackage{booktabs}
-\usepackage{tabularx}
+\usepackage{charter}
+\usepackage[scaled=0.92]{helvet}
+\renewcommand{\ttdefault}{lmtt}
+\usepackage{microtype}
+\usepackage{amsmath, amssymb}
+\usepackage[table]{xcolor}
+\usepackage{booktabs, tabularx}
 \usepackage{enumitem}
 \usepackage{listings}
-\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{caption}
 \usepackage[hidelinks]{hyperref}
 
-\setlist{nosep, leftmargin=1.4em}
+%================================================================ colours
+\definecolor{accent}{RGB}{0,72,130}
+\definecolor{accentlight}{RGB}{232,240,248}
+\definecolor{road}{RGB}{200,90,20}
+\definecolor{muted}{RGB}{110,110,110}
+\definecolor{codebg}{RGB}{246,247,249}
+
+%================================================================ layout
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{0.5em}
-\lstset{basicstyle=\ttfamily\small, columns=fullflexible, frame=single,
-        framesep=4pt, xleftmargin=6pt, xrightmargin=6pt, aboveskip=6pt, belowskip=6pt}
+\setlength{\parskip}{0.45em}
+\setlist{nosep, leftmargin=1.4em, topsep=2pt}
+\setlist[itemize]{label={\color{accent}\small$\blacktriangleright$}}
 \newcommand{\code}[1]{\texttt{#1}}
 
+\titleformat{\section}{\Large\sffamily\bfseries\color{accent}}
+  {\thesection}{0.6em}{}[{\color{accent!40}\titlerule[0.8pt]}]
+\titleformat{\subsection}{\large\sffamily\bfseries}{\color{accent}\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.4em}{0.6em}
+\titlespacing*{\subsection}{0pt}{1.0em}{0.3em}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\sffamily\color{muted}CSL559 \textbullet{} LAB 07}
+\fancyhead[R]{\small\sffamily\color{muted}Paritosh Lahre \textbullet{} 1241550}
+\fancyfoot[C]{\small\sffamily\color{muted}Page \thepage\ of \pageref{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{{\color{accent!30}\hrule width\headwidth height\headrulewidth}}
+
+\captionsetup{font={small,sf}, labelfont={bf,color=accent}, skip=4pt}
+\captionsetup[table]{position=top}
+\renewcommand{\arraystretch}{1.25}
+\newcommand{\thead}{\rowcolor{accentlight}}
+
+\lstset{
+  language=Python, basicstyle=\ttfamily\small, columns=fullflexible,
+  keywordstyle=\color{accent}, commentstyle=\color{muted}\itshape,
+  morekeywords={return, break}, backgroundcolor=\color{codebg},
+  numbers=left, numberstyle=\tiny\color{muted}, numbersep=8pt,
+  frame=leftline, framerule=2pt, rulecolor=\color{accent},
+  xleftmargin=18pt, framexleftmargin=14pt, aboveskip=8pt, belowskip=6pt
+}
+
+\newtcolorbox{keybox}[1]{enhanced, colback=accentlight, colframe=accent,
+  boxrule=0pt, leftrule=3pt, arc=0pt, left=8pt, right=8pt, top=4pt, bottom=4pt,
+  fonttitle=\sffamily\bfseries, coltitle=accent, title={#1},
+  attach title to upper={\ \ }}
+
+%================================================================ document
 \begin{document}
 
-%-------------------------------------------------------------- title
-\begin{center}
-  {\Large\bfseries Computer System Design (CSL559)}\\[4pt]
-  {\large LAB 07 --- Nearest-Location Recommendation API}\\[10pt]
-  Paritosh Lahre \quad|\quad ID: 1241550
-\end{center}
+%---------------------------------------------------------------- title
+\begin{tcolorbox}[enhanced, colback=accent, colframe=accent, arc=0pt,
+  left=12pt, right=12pt, top=10pt, bottom=10pt]
+  \color{white}\sffamily
+  {\small COMPUTER SYSTEM DESIGN (CSL559)}\\[4pt]
+  {\LARGE\bfseries LAB 07: Nearest-Location Recommendation API}\\[8pt]
+  {\normalsize Paritosh Lahre \quad\textbar\quad ID: 1241550}
+\end{tcolorbox}
 
-\begin{center}
-\fbox{\begin{minipage}{0.9\textwidth}\centering\vspace{3pt}
-  \textbf{API link:} \url{http://10.1.75.53:3280/search/}\\[3pt]
-  \small Example: \url{http://10.1.75.53:3280/search/?lat=0.5&long=0.5&cat=bank&rad=0.1&link=true}
-\vspace{3pt}\end{minipage}}
-\end{center}
+\begin{tcolorbox}[enhanced, colback=white, colframe=accent, boxrule=0.8pt, arc=2pt,
+  left=10pt, right=10pt, top=6pt, bottom=6pt]
+  \sffamily\textbf{\color{accent}API link:}\enspace
+  \href{http://10.1.75.53:3280/search/}{\ttfamily http://10.1.75.53:3280/search/}\\[3pt]
+  {\small\color{muted}Example:\enspace
+  \ttfamily\href{http://10.1.75.53:3280/search/?lat=0.5&long=0.5&cat=bank&rad=0.1&link=true}{/search/?lat=0.5\&long=0.5\&cat=bank\&rad=0.1\&link=true}}
+\end{tcolorbox}
 
-%-------------------------------------------------------------- 1
+%---------------------------------------------------------------- 1
 \section{Problem Statement}
 
 Given a query \code{(lat, long, cat, rad, link)}, return the IDs of the
@@ -50,17 +105,55 @@ The boolean \code{link} tells whether there is an edge between two points:
 \end{itemize}
 
 \[
-\text{Result} = \operatorname{Top\text{-}10}_{\,d_{\text{grid}}}
-\{\, p : \text{cat}(p)=\code{cat},\; d_{\text{euclid}}(q,p)\le \code{rad} \,\}
+\text{Result} \;=\; \operatorname{Top\text{-}10}_{\,d_{\text{grid}}}
+\bigl\{\, p \;:\; \text{cat}(p)=\code{cat},\;\; d_{\text{euclid}}(q,p)\le \code{rad} \,\bigr\}
 \]
 
-So two different distances are used: Euclidean decides \emph{who is eligible},
-grid distance decides \emph{the order}.
+\begin{keybox}{Key idea.}
+Two different distances: \textbf{Euclidean decides who is eligible},
+\textbf{grid distance decides the order}.
+\end{keybox}
 
-%-------------------------------------------------------------- 2
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[scale=0.85,
+    node/.style={circle, fill=muted!60, inner sep=1.4pt},
+    edge/.style={muted!45, line width=0.8pt}]
+  % grid edges, minus the missing ones
+  \foreach \x in {0,...,5} \foreach \y in {0,...,3} {
+    \ifnum\x<5 \draw[edge] (\x,\y) -- (\x+1,\y); \fi
+    \ifnum\y<3 \draw[edge] (\x,\y) -- (\x,\y+1); \fi }
+  % missing roads
+  \foreach \ax/\ay/\bx/\by in {1/1/2/1, 2/1/3/1, 2/0/2/1, 4/2/4/3, 4/0/5/0} {
+    \draw[white, line width=2.5pt] (\ax,\ay) -- (\bx,\by);
+    \draw[red!70, densely dotted, line width=0.6pt] (\ax,\ay) -- (\bx,\by);
+    \node[red!80, font=\scriptsize\bfseries] at ({(\ax+\bx)/2},{(\ay+\by)/2}) {$\times$}; }
+  \foreach \x in {0,...,5} \foreach \y in {0,...,3} \node[node] at (\x,\y) {};
+  % radius circle
+  \draw[accent, dashed, line width=0.7pt] (1,1) circle (2.35);
+  \clip (-0.6,-0.6) rectangle (5.6,3.6);
+  % straight line and road route
+  \draw[accent, line width=1.2pt, -{Stealth[length=5pt]}] (1,1) -- (2.88,1);
+  \draw[road, line width=1.8pt, -{Stealth[length=6pt]}, rounded corners=2pt]
+       (1,1) -- (1,2) -- (2,2) -- (3,2) -- (3,1.12);
+  \node[circle, fill=accent, inner sep=2.6pt, label={[font=\small\bfseries]left:$q$}] at (1,1) {};
+  \node[circle, fill=road, inner sep=2.6pt, label={[font=\small\bfseries]below right:$p$}] at (3,1) {};
+\end{tikzpicture}
+\hspace{0.8cm}
+\begin{minipage}[b]{0.36\textwidth}\small\sffamily
+  \tikz\draw[accent, line width=1.2pt] (0,0)--(0.6,0); Euclidean: 2 units (inside \code{rad})\\[4pt]
+  \tikz\draw[road, line width=1.8pt] (0,0)--(0.6,0); Road route: 4 hops\\[4pt]
+  \tikz\draw[red!70, densely dotted, line width=0.8pt] (0,0)--(0.6,0); Missing road (\code{link=true})\\[4pt]
+  \tikz\draw[accent, dashed, line width=0.7pt] (0,0)--(0.6,0); Search radius\\[10pt]
+\end{minipage}
+\caption{With \code{link=true} a nearby point can be far by road. With \code{link=false}
+all dotted roads exist and the distance from $q$ to $p$ is 2 hops.}
+\end{figure}
+
+%---------------------------------------------------------------- 2
 \section{Thought Process}
 
-\subsection*{Step 1: understand the data}
+\subsection{Understand the data}
 \begin{itemize}
   \item \code{locations.csv}: 10{,}000 rows forming a complete $100\times100$ grid on $[0,1]^2$
         (spacing $1/99 \approx 0.0101$). IDs are row-major. 8 categories, 1{,}250 each.
@@ -72,7 +165,7 @@ grid distance decides \emph{the order}.
         So the links were removed while keeping connectivity.
 \end{itemize}
 
-\subsection*{Step 2: choose the distance model}
+\subsection{Choose the distance model}
 \begin{itemize}
   \item Every road has the same length $\Rightarrow$ the graph is \textbf{unweighted}
         $\Rightarrow$ shortest path = \textbf{BFS hop count}.
@@ -80,10 +173,12 @@ grid distance decides \emph{the order}.
         6\% longer and up to $9\times$ longer than Manhattan. It is only correct for \code{link=false}.
 \end{itemize}
 
-\subsection*{Step 3: rule out what does not fit}
-\begin{tabularx}{\textwidth}{@{}lX@{}}
+\subsection{Rule out what does not fit}
+\begin{center}\begin{minipage}{\textwidth}
+\captionof{table}{Approaches considered and rejected.}
+\begin{tabularx}{\textwidth}{@{}>{\bfseries}lX@{}}
 \toprule
-Approach & Why not used \\
+\thead \normalfont\sffamily\bfseries Approach & \sffamily\bfseries Why not used \\
 \midrule
 Euclidean / Manhattan ranking & Ignores the road network (wrong in 82\% of queries) \\
 Dijkstra / A* & Edges are unweighted (BFS is enough); A* needs one known destination \\
@@ -91,9 +186,10 @@ KD-tree, R-tree, Redis GEO, S2, H3 & Index straight-line proximity only; cannot 
 All-pairs precomputation & $10^8$ distances; unnecessary when a query takes 0.05\,ms \\
 \bottomrule
 \end{tabularx}
+\end{minipage}\end{center}
 
-\subsection*{Assumptions}
-\begin{enumerate}[label=A\arabic*]
+\subsection{Assumptions}
+\begin{enumerate}[label=\textbf{\color{accent}A\arabic*}, leftmargin=2.2em]
   \item Each road costs 1; grid distance = number of roads on the shortest route.
   \item The radius is checked from the raw query point to the location; the route itself may leave the circle.
   \item An off-grid query starts from the nearest grid point.
@@ -102,10 +198,26 @@ All-pairs precomputation & $10^8$ distances; unnecessary when a query takes 0.05
   \item \code{link} accepts \code{true/false}, \code{1/0}, \code{yes/no}; it defaults to \code{true} if omitted.
 \end{enumerate}
 
-%-------------------------------------------------------------- 3
+%---------------------------------------------------------------- 3
 \section{Algorithms Used}
 
-\subsection*{Preprocessing (once, at startup)}
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+    box/.style={draw=accent, fill=accentlight, rounded corners=2pt, align=center,
+                font=\small\sffamily, text width=2.3cm, minimum height=1.25cm, inner sep=3pt},
+    arr/.style={-{Stealth[length=5pt]}, accent, line width=0.9pt}]
+  \node[box] (q) {Query\\\scriptsize\code{lat, long, cat,}\\\scriptsize\code{rad, link}};
+  \node[box, right=0.38cm of q] (s) {Snap to nearest grid node};
+  \node[box, right=0.38cm of s] (c) {Count eligible in circle};
+  \node[box, right=0.38cm of c] (b) {Layered BFS\\\scriptsize road graph / full grid};
+  \node[box, right=0.38cm of b, fill=accent, text=white] (r) {Top-10 IDs\\\scriptsize sorted by (dist, ID)};
+  \foreach \u/\v in {q/s, s/c, c/b, b/r} \draw[arr] (\u) -- (\v);
+\end{tikzpicture}
+\caption{Request pipeline. Both graphs are built once at startup; \code{link} only selects one.}
+\end{figure}
+
+\subsection{Preprocessing (once, at startup)}
 \begin{itemize}
   \item Store each location at node $v = \text{row}\cdot100+\text{col}$.
   \item Build two adjacency lists: the \textbf{road graph} from \code{link.txt}
@@ -113,7 +225,7 @@ All-pairs precomputation & $10^8$ distances; unnecessary when a query takes 0.05
   \item Build per-category, per-row prefix counts (used by the count bound below).
 \end{itemize}
 
-\subsection*{Main method: layered BFS with early stopping}
+\subsection{Main method: layered BFS with early stopping}
 \begin{lstlisting}
 target = min(10, count_in_circle(q, cat, rad))
 if target == 0: return []
@@ -122,8 +234,8 @@ while layer:
     for v in layer:
         if cat[v] == cat and euclid(v, q) <= rad: found.add((d, id[v]))
     if len(found) >= target: break          # top-10 is final
-    layer = unvisited neighbours of layer;  d += 1
-return 10 smallest (d, id) in found
+    layer = unvisited_neighbours(layer);  d += 1
+return smallest_10(found)                   # ordered by (d, id)
 \end{lstlisting}
 \begin{itemize}
   \item \textbf{Why stopping is safe:} BFS visits nodes in order of distance. It stops only after a
@@ -135,23 +247,23 @@ return 10 smallest (d, id) in found
   \item \textbf{Cost:} worst case $O(V+E)$; in practice about 117 of 10{,}000 nodes are visited.
 \end{itemize}
 
-\subsection*{Reference method (for verification only)}
+\subsection{Reference method (for verification only)}
 Full BFS to every node $\rightarrow$ filter all eligible $\rightarrow$ sort all $\rightarrow$ take 10.
 Simple enough to be obviously correct; used as ground truth.
 
-\subsection*{API}
+\subsection{API}
 Python 3 standard library only (\code{http.server}), so nothing needs to be installed.
-\begin{lstlisting}
+\begin{lstlisting}[language={}, numbers=none, basicstyle=\ttfamily\footnotesize]
 GET /search/?lat=<float>&long=<float>&cat=<name>&rad=<float>&link=<true|false>
 \end{lstlisting}
 POST with form or JSON also works. The response contains \code{ids} (10 IDs, nearest first) plus each one's grid distance.
 Bad input returns HTTP 400 with a message.
 
-%-------------------------------------------------------------- 4
+%---------------------------------------------------------------- 4
 \section{Experimentation}
 
 \begin{itemize}
-  \item \textbf{Query set:} 4{,}000 queries --- 2{,}000 random (half on-grid, half off-grid, all categories,
+  \item \textbf{Query set:} 4{,}000 queries: 2{,}000 random (half on-grid, half off-grid, all categories,
         \code{rad} from 0.05 to 1.5) and 2{,}000 boundary cases where locations lie exactly on the circle.
   \item \textbf{Correctness:} main method vs.\ reference, for both \code{link} values.
         For \code{link=false}, also vs.\ closed-form Manhattan ranking.
@@ -160,43 +272,49 @@ Bad input returns HTTP 400 with a message.
   \item \textbf{Deployment:} 200 random queries sent to the live API and compared with local results.
 \end{itemize}
 
-%-------------------------------------------------------------- 5
+%---------------------------------------------------------------- 5
 \section{Results}
 
-\subsection*{Correctness}
+\begin{center}\begin{minipage}{\textwidth}
+\captionof{table}{Correctness: fast method against independent references.}
 \begin{tabularx}{\textwidth}{@{}Xr@{}}
 \toprule
-Check & Mismatches \\
+\thead \sffamily\bfseries Check & \sffamily\bfseries Mismatches \\
 \midrule
-BFS early-stop vs.\ reference, \code{link=true} (4 configurations $\times$ 4{,}000) & 0 / 16{,}000 \\
-\code{link=false}: BFS = reference = Manhattan & 0 / 4{,}000 \\
-Count bound vs.\ full scan & 0 / 4{,}000 \\
-Live API vs.\ local code & 0 / 200 \\
+BFS early-stop vs.\ reference, \code{link=true} (4 configurations $\times$ 4{,}000) & \textbf{0} / 16{,}000 \\
+\code{link=false}: BFS = reference = Manhattan & \textbf{0} / 4{,}000 \\
+Count bound vs.\ full scan & \textbf{0} / 4{,}000 \\
+Live API vs.\ local code & \textbf{0} / 200 \\
 \bottomrule
 \end{tabularx}
+\end{minipage}\end{center}
 
-\subsection*{Performance}
+\begin{center}\begin{minipage}{\textwidth}
+\captionof{table}{Performance.}
 \begin{tabularx}{\textwidth}{@{}Xr@{}}
 \toprule
-Measurement & Time \\
+\thead \sffamily\bfseries Measurement & \sffamily\bfseries Time \\
 \midrule
-BFS early-stop (served), mean per query & 0.05 ms \\
+BFS early-stop (served), mean per query & \textbf{0.05 ms} \\
 Reference method, mean per query & 2.67 ms \\
-Queries with $<10$ eligible: before / after count bound & 2.41 / 0.02 ms \\
+Queries with $<10$ eligible: before / after count bound & 2.41 / \textbf{0.02 ms} \\
 Live API round trip over campus network, median & 8 ms \\
 \bottomrule
 \end{tabularx}
+\end{minipage}\end{center}
 
-\subsection*{Sensitivity to assumptions}
+\begin{center}\begin{minipage}{\textwidth}
+\captionof{table}{Sensitivity: how many top-10 lists change when one choice changes.}
 \begin{tabularx}{\textwidth}{@{}Xrr@{}}
 \toprule
-Change & Queries affected & IDs changed (of 10) \\
+\thead \sffamily\bfseries Change & \sffamily\bfseries Queries affected & \sffamily\bfseries IDs changed (of 10) \\
 \midrule
 \code{link=true} $\rightarrow$ \code{link=false} & 82.1\% & 1.49 \\
 Tie-break: ID $\rightarrow$ Euclidean & 39.1\% & 0.44 \\
 Radius: endpoint only $\rightarrow$ whole route inside circle & 0.3\% & 0.00 \\
 \bottomrule
 \end{tabularx}
+\end{minipage}\end{center}
 
 \begin{itemize}
   \item The \code{link} flag changes most answers, so the road network really matters.
@@ -204,16 +322,19 @@ Radius: endpoint only $\rightarrow$ whole route inside circle & 0.3\% & 0.00 \\
   \item Whether routes may leave the circle almost never matters on this data.
 \end{itemize}
 
-%-------------------------------------------------------------- 6
+%---------------------------------------------------------------- 6
 \section{Conclusion}
 
+\begin{keybox}{Summary.}
 \begin{itemize}
   \item The grid with roads is an unweighted graph, so \textbf{BFS hop count} is the exact ranking metric;
         Euclidean distance is used only for the radius filter.
   \item A \textbf{layered BFS with early stopping} plus an \textbf{exact eligible-count bound} gives exact
         answers in about 0.05\,ms per query, around $50\times$ faster than the full reference.
-  \item It matched the reference in every test (0 mismatches) and the live deployment matches the local code.
-  \item \textbf{Main limitation:} the evaluator's tie-break rule is unknown. We use the smaller ID.
+  \item It matched the reference in every test (0 mismatches), and the live deployment matches the local code.
 \end{itemize}
+\end{keybox}
+
+\textbf{Main limitation:} the evaluator's tie-break rule is unknown. We use the smaller ID.
 
 \end{document}
