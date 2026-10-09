@@ -51,6 +51,17 @@ class Grid:
             self.id[v], self.lat[v], self.lon[v], self.cat[v] = int(r["ID"]), la, lo, r["Category"]
         self.categories = sorted(set(self.cat))
 
+        # row_prefix[cat][r][c] = number of `cat` locations in row r, columns [0, c).
+        self.row_prefix = {}
+        for c_name in self.categories:
+            table = []
+            for r in range(self.nrows):
+                acc = [0]
+                for c in range(self.ncols):
+                    acc.append(acc[-1] + (self.cat[r * self.ncols + c] == c_name))
+                table.append(acc)
+            self.row_prefix[c_name] = table
+
         self.adj = [[] for _ in range(n)]
         for line in open(link_path):
             parts = line.split()
@@ -85,8 +96,36 @@ class Grid:
     def euclid2(self, v, lat, lon):
         return (self.lat[v] - lat) ** 2 + (self.lon[v] - lon) ** 2
 
+    def in_circle(self, v, lat, lon, rad):
+        return self.euclid2(v, lat, lon) <= rad * rad + EPS
+
     def eligible(self, v, lat, lon, cat, rad):
-        return self.cat[v] == cat and self.euclid2(v, lat, lon) <= rad * rad + EPS
+        return self.cat[v] == cat and self.in_circle(v, lat, lon, rad)
+
+    def count_in_circle(self, lat, lon, cat, rad):
+        """Exact number of eligible locations, in O(rows spanned * log cols).
+
+        Per row the circle covers one contiguous column run; bisect a slightly
+        widened run, then trim both ends with the same in_circle() test that
+        eligible() uses, so the count can never be lower than the true one.
+        """
+        slack = 1e-6
+        r_lo = bisect.bisect_left(self.lat_vals, lat - rad - slack)
+        r_hi = bisect.bisect_right(self.lat_vals, lat + rad + slack)
+        prefix = self.row_prefix[cat]
+        total = 0
+        for r in range(r_lo, r_hi):
+            half = math.sqrt(max(0.0, rad * rad + EPS - (self.lat_vals[r] - lat) ** 2))
+            c_lo = bisect.bisect_left(self.lon_vals, lon - half - slack)
+            c_hi = bisect.bisect_right(self.lon_vals, lon + half + slack) - 1
+            base = r * self.ncols
+            while c_lo <= c_hi and not self.in_circle(base + c_lo, lat, lon, rad):
+                c_lo += 1
+            while c_hi >= c_lo and not self.in_circle(base + c_hi, lat, lon, rad):
+                c_hi -= 1
+            if c_lo <= c_hi:
+                total += prefix[r][c_hi + 1] - prefix[r][c_lo]
+        return total
 
     def tie_key(self, tie, v, d, lat, lon):
         if tie == "euclid":
@@ -104,12 +143,21 @@ def _check(grid, cat, rad):
 def _passable(grid, v, lat, lon, rad, radius_mode):
     # 'endpoint': roads outside the circle may be used; only the result must be inside.
     # 'path'    : the whole route must stay inside the circle.
-    return radius_mode == "endpoint" or grid.euclid2(v, lat, lon) <= rad * rad + EPS
+    return radius_mode == "endpoint" or grid.in_circle(v, lat, lon, rad)
 
 
 def search_bfs(grid, lat, lon, cat, rad, k=K, tie="id", radius_mode="endpoint"):
-    """Layered BFS from the snapped node; stops after the layer that completes the top k."""
+    """Layered BFS from the snapped node; stops after the layer that completes the top k.
+
+    If fewer than k locations are eligible at all, it stops as soon as every one
+    of them has been reached instead of exhausting the graph.
+    """
     _check(grid, cat, rad)
+    # In 'path' mode some of these may be unreachable; the BFS then simply
+    # runs out of frontier, so an over-estimate here is always safe.
+    target = min(k, grid.count_in_circle(lat, lon, cat, rad))
+    if target == 0:
+        return []
     src = grid.snap(lat, lon)
     seen = {src}
     layer, d = [src], 0
@@ -119,8 +167,9 @@ def search_bfs(grid, lat, lon, cat, rad, k=K, tie="id", radius_mode="endpoint"):
             if grid.eligible(v, lat, lon, cat, rad):
                 found.append((grid.tie_key(tie, v, d, lat, lon), v))
         # Everything in later layers has distance > d, so once we hold k
-        # results after finishing layer d, the top k cannot change.
-        if len(found) >= k:
+        # results after finishing layer d, the top k cannot change. With fewer
+        # than k eligible in total, holding all of them is also final.
+        if len(found) >= target:
             break
         nxt = []
         for v in layer:

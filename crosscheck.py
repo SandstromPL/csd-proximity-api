@@ -29,6 +29,23 @@ def ids(r):
 
 
 qs = [query() for _ in range(N)]
+
+# Boundary-heavy cases: on-grid centres with radii that land exactly on grid points.
+step = g.lon_vals[1] - g.lon_vals[0]
+edge_qs = []
+for _ in range(N):
+    v = rng.randrange(len(g.adj))
+    a, b = rng.randint(0, 6), rng.randint(0, 6)
+    edge_qs.append((g.lat[v], g.lon[v], rng.choice(g.categories), step * (a * a + b * b) ** 0.5))
+
+bad = 0
+for q in qs + edge_qs:
+    lat, lon, cat, rad = q
+    if g.count_in_circle(*q) != sum(g.eligible(v, lat, lon, cat, rad) for v in range(len(g.adj))):
+        bad += 1
+        print("COUNT MISMATCH", q)
+print(f"[0] count_in_circle vs full scan over {2 * N} queries: {bad} mismatches\n")
+qs += edge_qs
 mismatch = {"endpoint": 0, "path": 0}
 for mode in mismatch:
     for tie in ("id", "euclid"):
@@ -37,7 +54,7 @@ for mode in mismatch:
             if a != b:
                 mismatch[mode] += 1
                 print("MISMATCH", mode, tie, q, a, b)
-print(f"\n[1] BFS-early-stop vs brute force over {N} queries x 2 tie rules:", mismatch)
+print(f"\n[1] BFS-early-stop vs brute force over {len(qs)} queries x 2 tie rules:", mismatch)
 
 
 def overlap(f1, f2):
