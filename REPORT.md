@@ -2,6 +2,7 @@
 
 **Course:** Computer System Design  **Author:** Paritosh L.
 **Code:** `engine.py` (algorithms), `server.py` (HTTP API), `crosscheck.py` (validation)
+**API link:** `http://10.1.75.53:3280/search/` (example: `http://10.1.75.53:3280/search/?lat=0.5&long=0.5&cat=bank&rad=0.1&link=true`)
 **Data:** `assets/locations.csv`, `assets/link.txt` (road links)  **Assignment material:** `docs/`
 
 ---
