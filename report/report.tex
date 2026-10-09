@@ -1,0 +1,219 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+\setlist{nosep, leftmargin=1.4em}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+\lstset{basicstyle=\ttfamily\small, columns=fullflexible, frame=single,
+        framesep=4pt, xleftmargin=6pt, xrightmargin=6pt, aboveskip=6pt, belowskip=6pt}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\begin{document}
+
+%-------------------------------------------------------------- title
+\begin{center}
+  {\Large\bfseries Computer System Design (CSL559)}\\[4pt]
+  {\large LAB 07 --- Nearest-Location Recommendation API}\\[10pt]
+  Paritosh Lahre \quad|\quad ID: 1241550
+\end{center}
+
+\begin{center}
+\fbox{\begin{minipage}{0.9\textwidth}\centering\vspace{3pt}
+  \textbf{API link:} \url{http://10.1.75.53:3280/search/}\\[3pt]
+  \small Example: \url{http://10.1.75.53:3280/search/?lat=0.5&long=0.5&cat=bank&rad=0.1&link=true}
+\vspace{3pt}\end{minipage}}
+\end{center}
+
+%-------------------------------------------------------------- 1
+\section{Problem Statement}
+
+Given a query \code{(lat, long, cat, rad, link)}, return the IDs of the
+\textbf{10 closest locations} that
+\begin{itemize}
+  \item have category \code{cat}, and
+  \item lie within \textbf{circular (Euclidean) distance} \code{rad} of the query point.
+\end{itemize}
+``Closest'' means \textbf{traversal distance on the grid}, not straight-line distance.
+The boolean \code{link} tells whether there is an edge between two points:
+\begin{itemize}
+  \item \code{link=true}: two neighbouring points are connected only if \code{link.txt} lists a road between them.
+  \item \code{link=false}: every pair of neighbouring points is connected.
+\end{itemize}
+
+\[
+\text{Result} = \operatorname{Top\text{-}10}_{\,d_{\text{grid}}}
+\{\, p : \text{cat}(p)=\code{cat},\; d_{\text{euclid}}(q,p)\le \code{rad} \,\}
+\]
+
+So two different distances are used: Euclidean decides \emph{who is eligible},
+grid distance decides \emph{the order}.
+
+%-------------------------------------------------------------- 2
+\section{Thought Process}
+
+\subsection*{Step 1: understand the data}
+\begin{itemize}
+  \item \code{locations.csv}: 10{,}000 rows forming a complete $100\times100$ grid on $[0,1]^2$
+        (spacing $1/99 \approx 0.0101$). IDs are row-major. 8 categories, 1{,}250 each.
+  \item \code{link.txt}: 14{,}800 roads out of 19{,}800 possible, so \textbf{about 25\% are missing}.
+        Each line is \code{lon\_a lat\_a lon\_b lat\_b} (\textbf{longitude first}, unlike the CSV).
+        All links join 4-neighbours.
+  \item The road graph is \textbf{connected} (one component), so every location is reachable.
+        With random removal about 46 isolated points would be expected; there are none.
+        So the links were removed while keeping connectivity.
+\end{itemize}
+
+\subsection*{Step 2: choose the distance model}
+\begin{itemize}
+  \item Every road has the same length $\Rightarrow$ the graph is \textbf{unweighted}
+        $\Rightarrow$ shortest path = \textbf{BFS hop count}.
+  \item Manhattan distance ignores missing roads. With \code{link=true}, routes are on average
+        6\% longer and up to $9\times$ longer than Manhattan. It is only correct for \code{link=false}.
+\end{itemize}
+
+\subsection*{Step 3: rule out what does not fit}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+Approach & Why not used \\
+\midrule
+Euclidean / Manhattan ranking & Ignores the road network (wrong in 82\% of queries) \\
+Dijkstra / A* & Edges are unweighted (BFS is enough); A* needs one known destination \\
+KD-tree, R-tree, Redis GEO, S2, H3 & Index straight-line proximity only; cannot give road distance \\
+All-pairs precomputation & $10^8$ distances; unnecessary when a query takes 0.05\,ms \\
+\bottomrule
+\end{tabularx}
+
+\subsection*{Assumptions}
+\begin{enumerate}[label=A\arabic*]
+  \item Each road costs 1; grid distance = number of roads on the shortest route.
+  \item The radius is checked from the raw query point to the location; the route itself may leave the circle.
+  \item An off-grid query starts from the nearest grid point.
+  \item Ties in grid distance are broken by \textbf{smaller ID}.
+  \item Coordinates are mapped to indices by lookup of the 100 known values (no float division).
+  \item \code{link} accepts \code{true/false}, \code{1/0}, \code{yes/no}; it defaults to \code{true} if omitted.
+\end{enumerate}
+
+%-------------------------------------------------------------- 3
+\section{Algorithms Used}
+
+\subsection*{Preprocessing (once, at startup)}
+\begin{itemize}
+  \item Store each location at node $v = \text{row}\cdot100+\text{col}$.
+  \item Build two adjacency lists: the \textbf{road graph} from \code{link.txt}
+        (\code{link=true}) and the \textbf{full grid} (\code{link=false}).
+  \item Build per-category, per-row prefix counts (used by the count bound below).
+\end{itemize}
+
+\subsection*{Main method: layered BFS with early stopping}
+\begin{lstlisting}
+target = min(10, count_in_circle(q, cat, rad))
+if target == 0: return []
+layer = [nearest_node(q)];  d = 0;  found = []
+while layer:
+    for v in layer:
+        if cat[v] == cat and euclid(v, q) <= rad: found.add((d, id[v]))
+    if len(found) >= target: break          # top-10 is final
+    layer = unvisited neighbours of layer;  d += 1
+return 10 smallest (d, id) in found
+\end{lstlisting}
+\begin{itemize}
+  \item \textbf{Why stopping is safe:} BFS visits nodes in order of distance. It stops only after a
+        \emph{complete} layer, so every unvisited node is strictly farther and cannot enter the top 10.
+        All ties in the last layer are collected before sorting.
+  \item \textbf{Count bound:} inside the circle each grid row covers one run of columns; prefix sums give the
+        number of eligible locations in $O(\text{rows})$. If fewer than 10 exist, BFS stops once it has all of them
+        instead of scanning the whole graph.
+  \item \textbf{Cost:} worst case $O(V+E)$; in practice about 117 of 10{,}000 nodes are visited.
+\end{itemize}
+
+\subsection*{Reference method (for verification only)}
+Full BFS to every node $\rightarrow$ filter all eligible $\rightarrow$ sort all $\rightarrow$ take 10.
+Simple enough to be obviously correct; used as ground truth.
+
+\subsection*{API}
+Python 3 standard library only (\code{http.server}), so nothing needs to be installed.
+\begin{lstlisting}
+GET /search/?lat=<float>&long=<float>&cat=<name>&rad=<float>&link=<true|false>
+\end{lstlisting}
+POST with form or JSON also works. The response contains \code{ids} (10 IDs, nearest first) plus each one's grid distance.
+Bad input returns HTTP 400 with a message.
+
+%-------------------------------------------------------------- 4
+\section{Experimentation}
+
+\begin{itemize}
+  \item \textbf{Query set:} 4{,}000 queries --- 2{,}000 random (half on-grid, half off-grid, all categories,
+        \code{rad} from 0.05 to 1.5) and 2{,}000 boundary cases where locations lie exactly on the circle.
+  \item \textbf{Correctness:} main method vs.\ reference, for both \code{link} values.
+        For \code{link=false}, also vs.\ closed-form Manhattan ranking.
+  \item \textbf{Count bound:} \code{count\_in\_circle} vs.\ a full scan of all nodes.
+  \item \textbf{Sensitivity:} change one assumption at a time and count how many top-10 lists change.
+  \item \textbf{Deployment:} 200 random queries sent to the live API and compared with local results.
+\end{itemize}
+
+%-------------------------------------------------------------- 5
+\section{Results}
+
+\subsection*{Correctness}
+\begin{tabularx}{\textwidth}{@{}Xr@{}}
+\toprule
+Check & Mismatches \\
+\midrule
+BFS early-stop vs.\ reference, \code{link=true} (4 configurations $\times$ 4{,}000) & 0 / 16{,}000 \\
+\code{link=false}: BFS = reference = Manhattan & 0 / 4{,}000 \\
+Count bound vs.\ full scan & 0 / 4{,}000 \\
+Live API vs.\ local code & 0 / 200 \\
+\bottomrule
+\end{tabularx}
+
+\subsection*{Performance}
+\begin{tabularx}{\textwidth}{@{}Xr@{}}
+\toprule
+Measurement & Time \\
+\midrule
+BFS early-stop (served), mean per query & 0.05 ms \\
+Reference method, mean per query & 2.67 ms \\
+Queries with $<10$ eligible: before / after count bound & 2.41 / 0.02 ms \\
+Live API round trip over campus network, median & 8 ms \\
+\bottomrule
+\end{tabularx}
+
+\subsection*{Sensitivity to assumptions}
+\begin{tabularx}{\textwidth}{@{}Xrr@{}}
+\toprule
+Change & Queries affected & IDs changed (of 10) \\
+\midrule
+\code{link=true} $\rightarrow$ \code{link=false} & 82.1\% & 1.49 \\
+Tie-break: ID $\rightarrow$ Euclidean & 39.1\% & 0.44 \\
+Radius: endpoint only $\rightarrow$ whole route inside circle & 0.3\% & 0.00 \\
+\bottomrule
+\end{tabularx}
+
+\begin{itemize}
+  \item The \code{link} flag changes most answers, so the road network really matters.
+  \item The tie-break rule matters often but usually changes only one ID.
+  \item Whether routes may leave the circle almost never matters on this data.
+\end{itemize}
+
+%-------------------------------------------------------------- 6
+\section{Conclusion}
+
+\begin{itemize}
+  \item The grid with roads is an unweighted graph, so \textbf{BFS hop count} is the exact ranking metric;
+        Euclidean distance is used only for the radius filter.
+  \item A \textbf{layered BFS with early stopping} plus an \textbf{exact eligible-count bound} gives exact
+        answers in about 0.05\,ms per query, around $50\times$ faster than the full reference.
+  \item It matched the reference in every test (0 mismatches) and the live deployment matches the local code.
+  \item \textbf{Main limitation:} the evaluator's tie-break rule is unknown. We use the smaller ID.
+\end{itemize}
+
+\end{document}
